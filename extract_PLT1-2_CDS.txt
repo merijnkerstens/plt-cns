@@ -1,0 +1,21 @@
+# download CDS files
+wget -r -np -R "index.html*" https://ftp.psb.ugent.be/pub/plaza/plaza_public_dicots_05/Fasta/
+cd ftp.psb.ugent.be/pub/plaza/plaza_public_dicots_05/Fasta
+
+mv cds.selected_transcript.fasta.gz /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/plt1-2_cds/
+
+cd /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/plt1-2_cds/
+gunzip cds.selected_transcript.fasta.gz
+
+# Input files
+GENE_LIST="../prepping_promoters_dicots/PLT1-2_homologs.list"
+INPUT_FASTA="cds.selected_transcript.fasta"
+OUTPUT_FASTA="PLT1-2_CDS.fasta"
+
+> "$OUTPUT_FASTA"
+
+# Read each gene name from the gene list file
+while IFS= read -r gene; do
+    # Match any header that contains the gene name and include the sequence
+    grep -A 1 -E "^>.*${gene}" "$INPUT_FASTA" >> "$OUTPUT_FASTA"
+done < "$GENE_LIST"

@@ -1,0 +1,141 @@
+#Subsetting the file so it only contains BOX1  hits in dicot PLT1-2 promoters:
+awk -F, '$5 == "\"dicot_pPLT1-2_motif1\"" {print}' all_vs_all_sign_noFP.csv > BOX1.csv
+
+#Subsetting the file so it only contains hits in dicot PLT1-2 promoters
+awk -F, '$6 == "\"dicot_PLT1-2\"" {print}' BOX1.csv > BOX1_dicotsPLT1-2.csv
+
+#Subsetting the file so it only contains relevant columns
+awk -F, '{OFS=","; print $2, $4, $7, $8, $9}' BOX1_dicotsPLT1-2.csv > BOX1_dicotsPLT1-2_nomess.csv
+
+#Make new columns that contain the exact box locations (not relative to TSS) + and - 100 bp
+awk -F, '{
+	sum34 = $3 + $4 - 100; # Sum of column 3 and 4, but 100 bp earlier
+	sum35 = $3 + $5 + 100; # Sum of column 3 and 5, but 100 bp later
+	print $0, sum34, sum35 # Print the original row, followed by the new sums
+}' OFS=',' BOX1_dicotsPLT1-2_nomess.csv > BOX1_dicotsPLT1-2_nomess_boxlocations_100bp.csv
+
+#Make a new column that contains the box hit extracted from the promotersequences +100 and -100 bp (checked whether this was correct for the +-0bp, and it was the exact same hit)
+awk -F, '
+{
+	# Extract fields from the CSV
+	gene_id = $1; # Gene ID from the first column
+	start_pos = $6 + 0; # Start position from column 6
+	end_pos = $7 + 0; # End position from column 7
+
+	# Remove quotes from the gene ID
+	gsub(/"/, "", gene_id);
+
+	# Build the command to get the sequence from the FASTA file
+	# Use ^ and $ to match exactly the gene_id, ensuring only exact matches are captured
+	cmd = "grep -A1 \"^>" gene_id "$\" /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/fimo/promoters/dicot_PLT1-2_full_promoters_minlen50.fasta | tail -n1";
+	cmd | getline seq; # Execute the command and store the sequence
+
+	# Close the command to avoid resource leaks
+	close(cmd);
+
+	# Check if seq is not empty and extract the substring
+	if (length(seq) > 0) {
+		# Extract the substring from the sequence
+		extracted = substr(seq, start_pos, end_pos - start_pos + 1);
+	} else {
+		extracted = "PROBLEMATIC"; # Handle the case where no sequence is found
+	}
+	# Print the original line with the new extracted sequence as the last column
+	print $0 "," extracted; # Append the extracted sequence as a new column
+}' OFS=',' BOX1_dicotsPLT1-2_nomess_boxlocations_100bp.csv > BOX1_dicotsPLT1-2_nomess_boxsequences_100bp_B.csv
+
+#Make this into a fasta file of promoter_boxtype_relativeposition
+awk -F, '
+{
+	# Extract relevant columns
+	gene_id = $1;# Column 1
+	column4 = $4;# Column 4
+	column5 = $5;# Column 5
+	sequence = $8;# Column 8 (the extracted sequence)
+
+	# Remove quotes from gene_id
+	gsub(/"/, "", gene_id);
+	gsub(/"/, "", column4);
+	gsub(/"/, "", column5);
+	gsub(/"/, "", sequence);
+
+	# Construct the FASTA header
+	header = gene_id "_" "BOX1" "_" column4 "_" column5;
+
+	# Print the FASTA entry
+	print ">" header;
+	print sequence;
+}' OFS='\n' BOX1_dicotsPLT1-2_nomess_boxsequences_100bp_B.csv > BOX1_dicotsPLT1-2_+-100bp.fasta
+
+
+### REPEATING FOR BOX2
+#Subsetting the file so it only contains BOX2  hits in dicot PLT1-2 promoters:
+awk -F, '$5 == "\"dicot_pPLT1-2_motif4\"" {print}' all_vs_all_sign_noFP.csv > BOX2.csv
+
+#Subsetting the file so it only contains hits in dicot PLT1-2 promoters
+awk -F, '$6 == "\"dicot_PLT1-2\"" {print}' BOX2.csv > BOX2_dicotsPLT1-2.csv
+
+#Subsetting the file so it only contains relevant columns
+awk -F, '{OFS=","; print $2, $4, $7, $8, $9}' BOX2_dicotsPLT1-2.csv > BOX2_dicotsPLT1-2_nomess.csv
+
+#Make new columns that contain the exact box locations (not relative to TSS) + and - 100 bp
+awk -F, '{
+	sum34 = $3 + $4 - 100; # Sum of column 3 and 4, but 100 bp earlier
+	sum35 = $3 + $5 + 100; # Sum of column 3 and 5, but 100 bp later
+	print $0, sum34, sum35 # Print the original row, followed by the new sums
+}' OFS=',' BOX2_dicotsPLT1-2_nomess.csv > BOX2_dicotsPLT1-2_nomess_boxlocations_100bp.csv
+
+#Make a new column that contains the box hit extracted from the promotersequences +100 and -100 bp (checked whether this was correct for the +-0bp, and it was the exact same hit)
+awk -F, '
+{
+	# Extract fields from the CSV
+	gene_id = $1; # Gene ID from the first column
+	start_pos = $6 + 0; # Start position from column 6
+	end_pos = $7 + 0; # End position from column 7
+
+	# Remove quotes from the gene ID
+	gsub(/"/, "", gene_id);
+
+	# Build the command to get the sequence from the FASTA file
+	# Use ^ and $ to match exactly the gene_id, ensuring only exact matches are captured
+	cmd = "grep -A1 \"^>" gene_id "$\" /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/fimo/promoters/dicot_PLT1-2_full_promoters_minlen50.fasta | tail -n1";
+	cmd | getline seq; # Execute the command and store the sequence
+
+	# Close the command to avoid resource leaks
+	close(cmd);
+
+	# Check if seq is not empty and extract the substring
+	if (length(seq) > 0) {
+		# Extract the substring from the sequence
+		extracted = substr(seq, start_pos, end_pos - start_pos + 1);
+	} else {
+		extracted = "PROBLEMATIC"; # Handle the case where no sequence is found
+	}
+	# Print the original line with the new extracted sequence as the last column
+	print $0 "," extracted; # Append the extracted sequence as a new column
+}' OFS=',' BOX2_dicotsPLT1-2_nomess_boxlocations_100bp.csv > BOX2_dicotsPLT1-2_nomess_boxsequences_100bp_B.csv
+
+#Make this into a fasta file of promoter_boxtype_relativeposition
+awk -F, '
+{
+	# Extract relevant columns
+	gene_id = $1;# Column 1
+	column4 = $4;# Column 4
+	column5 = $5;# Column 5
+	sequence = $8;# Column 8 (the extracted sequence)
+
+	# Remove quotes from gene_id
+	gsub(/"/, "", gene_id);
+	gsub(/"/, "", column4);
+	gsub(/"/, "", column5);
+	gsub(/"/, "", sequence);
+
+	# Construct the FASTA header
+	header = gene_id "_" "BOX2" "_" column4 "_" column5;
+
+	# Print the FASTA entry
+	print ">" header;
+	print sequence;
+}' OFS='\n' BOX2_dicotsPLT1-2_nomess_boxsequences_100bp_B.csv > BOX2_dicotsPLT1-2_+-100bp.fasta
+
+

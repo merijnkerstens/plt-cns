@@ -1,0 +1,339 @@
+"""
+PROMOTER EXTRACTION FOR DICOT PLT HOMOLOGS, SIZE 20KB OR UNTIL UPSTREAM PLT
+
+Script performs the following steps:
+	1- download PLAZA5.0 dicot genomes (gff and fasta) and dicot PLT homologs (protein fasta)
+	2- filter PLT homologs based on size
+	3- < online do MAFFT > 
+	4- perform trimAl on MAFFT output
+	5- make a phylogenetic tree 
+	6- < online analyze tree >
+	7- prepare genome data
+	8- per PLT clade, exract the gene locations for all genomes
+	9- extract the 20kb promoters
+	10- shorten promoters up to the upstream gene (depends on gene_chopper.py --> adapt to correct path)
+	11- filter out promoters shorter than 50bp
+
+Output:
+	- per PLT clade a fasta file with promoters of 20kb or until upstream gene for all dicot species 
+
+Script should be run in command line, or manually online when mentioned.
+"""
+
+cd /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/PLAZA5.0-files-dicots
+
+### 1 - Downloading genome data
+# Download sequences PLAZA5 Dicot AP2 sequences from PLAZA5 homology group HOM05D000138
+wget https://bioinformatics.psb.ugent.be/plaza/versions/plaza_v5_dicots/gene_families/view_sequences/HOM05D000138/protein
+mv protein dicot_ap2.fasta
+
+# Download PLAZA5 genomes
+wget -r -np -R "index.html*" https://ftp.psb.ugent.be/pub/plaza/plaza_public_dicots_05/Genomes/
+
+# Download PLAZA5 annotations
+wget -r -np -R "index.html*" https://ftp.psb.ugent.be/pub/plaza/plaza_public_dicots_05/GFF/
+
+# Ensure directory "genomes" contains all genomes, and "gffs" has direcotries per species and contains annotations. Then enter gffs directory
+mkdir gffs
+mkdir genomes
+mv ./ftp.psb.ugent.be/pub/plaza/plaza_public_dicots_05/Genomes/* ./genomes/
+mv ./ftp.psb.ugent.be/pub/plaza/plaza_public_dicots_05/GFF/* ./gffs/
+rm -r ftp.psb.ugent.be/
+
+### 2 - filter AP2 homologs
+cd /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/prepping_promoters_dicots
+awk -v min=200 -v max=800 '
+  /^>/ {
+    if (length(sequence) >= min && length(sequence) <= max) {
+      printf "%s%s\n", header, sequence
+    }
+    header = $0 ORS
+    sequence = ""
+    next
+  }
+  { sequence = sequence $0 }
+  END {
+    if (length(sequence) >= min && length(sequence) <= max) {
+      printf "%s%s", header, sequence
+    }
+  }
+' ../PLAZA5.0-files/dicot_ap2.fasta > size_filtered_dicot_PLAZA5.fasta
+
+### 3 - run MAFFT online on output file (gp 1.0, FFT-NS-2, & download in fasta format)
+
+### 4 - run trimal on mafft MSA (should be somewhere between 300 & 400 approximately)
+trimal -in _out.241111215625530aPiVUHZFnuW3A8mSoOkRLlsfnormal.fasta -out PLAZA5_prot_MSA_trimmed_dicot_dataset.fasta -gt 0.5 -cons 0.7
+
+### 5 
+iqtree -s PLAZA5_prot_MSA_trimmed_dicot_dataset.fasta -m TEST -nt AUTO -bb 1000
+
+### 6 - analyze tree in iTOL
+# Load the tree in iTOL, select unrooted, and !DELETE! (NOT COLLAPSE!) clades with < 70 bootstrap support. 
+# Now manually define clades based on the presence of Arabidopsis genes and tree branching. 
+# Copy the clades to individual files e.g. PLT1-2_homologs.list
+# Fix homolog lists in those files (iTOL removes underscores) --> replace spaces by underscores
+# make sure grep can actually read in your homolog lists
+dos2unix *list 
+
+### 7 - prepare genome data
+gff=/lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/PLAZA5.0-files-dicots/gffs
+genome=/lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/PLAZA5.0-files-dicots/genomes
+
+for file in $genome/*.fasta.gz.fai
+	do
+	zless $file | cut -f1,2 > $file.bed
+done
+
+rename 's/.fasta.gz.fai.bed/.bed/' $genome/*
+
+gunzip $gff/*/*.gz
+gunzip $genome/*.gz
+for file in $gff/*/annotation.selected_transcript.all_features.*.gff3
+do
+zless $file | grep -P "\tCDS\t"> $file.tmp
+done
+
+### 8 run the python script extract_promoters_dicot.py, this will make bed files of the full 20kb promoters (20kb or until upstream PLT)
+### and the truncated 20kb promoters (20kb or until upstream gene)
+### manually remove some wrongly grepped genes in PLT3-7 and PLT5 (just impossible to do correctly...) in ama and cpa
+cd /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/prepping_promoters_dicots/
+mkdir PLT1-2_promoters PLT3-7_promoters PLT4_promoters PLT5_promoters
+
+# make promoter fastas for PLT1-2
+cd PLT1-2_promoters
+python3 ../../extract_promoters_dicot.py /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/prepping_promoters_dicots/PLT1-2_homologs.list
+
+# Loop through all .full_except_PLT_promoter.bed files and make them into full promoter fastas
+for file in *.full_except_PLT_promoter.bed; do
+    intermediate=$(echo "$file" | sed -E 's/^[^.]*\.//')
+    gene=$(echo "$intermediate" | sed -E 's/\.full_except_PLT_promoter\.bed$//')
+    bedtools getfasta -fullHeader -fi $genome/${file%%.*}.fasta -bed $file -fo ${file%%.*}_${gene}_PLT1-2_full_promoter.fasta -s
+done
+
+# Loop through all .truncated_promoter.bed files and make them into truncated promoter fastas
+for file in *.truncated_promoter.bed; do
+    intermediate=$(echo "$file" | sed -E 's/^[^.]*\.//')
+    gene=$(echo "$intermediate" | sed -E 's/\.truncated_promoter\.bed$//')
+    bedtools getfasta -fullHeader -fi $genome/${file%%.*}.fasta -bed $file -fo ${file%%.*}_${gene}_PLT1-2_truncated_promoter.fasta -s
+done
+
+# make promoter fastas for PLT3-7
+cd ../PLT3-7_promoters
+python3 ../../extract_promoters_dicot.py /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/prepping_promoters_dicots/PLT3-7_homologs.list
+
+# Loop through all .full_except_PLT_promoter.bed files and make them into full promoter fastas
+for file in *.full_except_PLT_promoter.bed; do
+    intermediate=$(echo "$file" | sed -E 's/^[^.]*\.//')
+    gene=$(echo "$intermediate" | sed -E 's/\.full_except_PLT_promoter\.bed$//')
+    bedtools getfasta -fullHeader -fi $genome/${file%%.*}.fasta -bed $file -fo ${file%%.*}_${gene}_PLT3-7_full_promoter.fasta -s
+done
+
+# Loop through all .truncated_promoter.bed files and make them into truncated promoter fastas
+for file in *.truncated_promoter.bed; do
+    intermediate=$(echo "$file" | sed -E 's/^[^.]*\.//')
+    gene=$(echo "$intermediate" | sed -E 's/\.truncated_promoter\.bed$//')
+    bedtools getfasta -fullHeader -fi $genome/${file%%.*}.fasta -bed $file -fo ${file%%.*}_${gene}_PLT3-7_truncated_promoter.fasta -s
+done
+
+
+# make promoter fastas for PLT4
+cd ../PLT4_promoters
+python3 ../../extract_promoters_dicot.py /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/prepping_promoters_dicots/PLT4_homologs.list
+
+# Loop through all .full_except_PLT_promoter.bed files and make them into full promoter fastas
+for file in *.full_except_PLT_promoter.bed; do
+    intermediate=$(echo "$file" | sed -E 's/^[^.]*\.//')
+    gene=$(echo "$intermediate" | sed -E 's/\.full_except_PLT_promoter\.bed$//')
+    bedtools getfasta -fullHeader -fi $genome/${file%%.*}.fasta -bed $file -fo ${file%%.*}_${gene}_PLT4_full_promoter.fasta -s
+done
+
+# Loop through all .truncated_promoter.bed files and make them into truncated promoter fastas
+for file in *.truncated_promoter.bed; do
+    intermediate=$(echo "$file" | sed -E 's/^[^.]*\.//')
+    gene=$(echo "$intermediate" | sed -E 's/\.truncated_promoter\.bed$//')
+    bedtools getfasta -fullHeader -fi $genome/${file%%.*}.fasta -bed $file -fo ${file%%.*}_${gene}_PLT4_truncated_promoter.fasta -s
+done
+
+# make promoter fastas for PLT5
+cd ../PLT5_promoters
+python3 ../../extract_promoters_dicot.py /lustre/BIF/nobackup/boele028/SA_2023/promoters_PLT/111124_20kb-cds_plt-chopped/prepping_promoters_dicots/PLT5_homologs.list
+
+# Loop through all .full_except_PLT_promoter.bed files and make them into full promoter fastas
+for file in *.full_except_PLT_promoter.bed; do
+    intermediate=$(echo "$file" | sed -E 's/^[^.]*\.//')
+    gene=$(echo "$intermediate" | sed -E 's/\.full_except_PLT_promoter\.bed$//')
+    bedtools getfasta -fullHeader -fi $genome/${file%%.*}.fasta -bed $file -fo ${file%%.*}_${gene}_PLT5_full_promoter.fasta -s
+done
+
+# Loop through all .truncated_promoter.bed files and make them into truncated promoter fastas
+for file in *.truncated_promoter.bed; do
+    intermediate=$(echo "$file" | sed -E 's/^[^.]*\.//')
+    gene=$(echo "$intermediate" | sed -E 's/\.truncated_promoter\.bed$//')
+    bedtools getfasta -fullHeader -fi $genome/${file%%.*}.fasta -bed $file -fo ${file%%.*}_${gene}_PLT5_truncated_promoter.fasta -s
+done
+
+
+### combine into one big file with shorter (more logical) headers counted per species
+cd ..
+output_file="PLT1-2_truncated_promoters.fasta"
+unset species_count
+declare -A species_count
+for file in ./PLT1-2_promoters/*_truncated_promoter.fasta; do
+    # Extract species name (everything before the first dot)
+    species=$(basename "$file" | cut -d'_' -f1)
+    gene=$(basename "$file" | grep -oP '(?<=_).*?(?=_PLT)')
+    # Increment the sequence count for this species
+    species_count[$species]=$((species_count[$species] + 1))
+    
+    # Create the new header with the sequence number
+    sequence_number=${species_count[$species]}
+    new_header="${species}_PLT1-2_${sequence_number}"
+    # Modify the header of the FASTA file and append it to the output file
+    echo -e "$gene\t$new_header"
+    sed "s/>.*/>$new_header/g" "$file" >> "$output_file"
+done
+output_file="PLT1-2_full_promoters.fasta"
+unset species_count
+declare -A species_count
+for file in ./PLT1-2_promoters/*_full_promoter.fasta; do
+    # Extract species name (everything before the first dot)
+    species=$(basename "$file" | cut -d'_' -f1)
+    
+    # Increment the sequence count for this species
+    species_count[$species]=$((species_count[$species] + 1))
+    
+    # Create the new header with the sequence number
+    sequence_number=${species_count[$species]}
+    new_header="${species}_PLT1-2_${sequence_number}"
+    
+    # Modify the header of the FASTA file and append it to the output file
+    sed "s/>.*/>$new_header/g" "$file" >> "$output_file"
+done
+
+
+output_file="PLT3-7_truncated_promoters.fasta"
+unset species_count
+declare -A species_count
+for file in ./PLT3-7_promoters/*_truncated_promoter.fasta; do
+    # Extract species name (everything before the first dot)
+    species=$(basename "$file" | cut -d'_' -f1)
+    gene=$(basename "$file" | grep -oP '(?<=_).*?(?=_PLT)')
+    # Increment the sequence count for this species
+    species_count[$species]=$((species_count[$species] + 1))
+    
+    # Create the new header with the sequence number
+    sequence_number=${species_count[$species]}
+    new_header="${species}_PLT3-7_${sequence_number}"
+    # Modify the header of the FASTA file and append it to the output file
+    echo -e "$gene\t$new_header"
+    sed "s/>.*/>$new_header/g" "$file" >> "$output_file"
+done
+output_file="PLT3-7_full_promoters.fasta"
+unset species_count
+declare -A species_count
+for file in ./PLT3-7_promoters/*_full_promoter.fasta; do
+    # Extract species name (everything before the first dot)
+    species=$(basename "$file" | cut -d'_' -f1)
+    
+    # Increment the sequence count for this species
+    species_count[$species]=$((species_count[$species] + 1))
+    
+    # Create the new header with the sequence number
+    sequence_number=${species_count[$species]}
+    new_header="${species}_PLT3-7_${sequence_number}"
+    
+    # Modify the header of the FASTA file and append it to the output file
+    sed "s/>.*/>$new_header/g" "$file" >> "$output_file"
+done
+
+output_file="PLT4_truncated_promoters.fasta"
+unset species_count
+declare -A species_count
+for file in ./PLT4_promoters/*_truncated_promoter.fasta; do
+    # Extract species name (everything before the first dot)
+    species=$(basename "$file" | cut -d'_' -f1)
+    gene=$(basename "$file" | grep -oP '(?<=_).*?(?=_PLT)')
+    # Increment the sequence count for this species
+    species_count[$species]=$((species_count[$species] + 1))
+    
+    # Create the new header with the sequence number
+    sequence_number=${species_count[$species]}
+    new_header="${species}_PLT4_${sequence_number}"
+    # Modify the header of the FASTA file and append it to the output file
+    echo -e "$gene\t$new_header"
+    sed "s/>.*/>$new_header/g" "$file" >> "$output_file"
+done
+output_file="PLT4_full_promoters.fasta"
+unset species_count
+declare -A species_count
+for file in ./PLT4_promoters/*_full_promoter.fasta; do
+    # Extract species name (everything before the first dot)
+    species=$(basename "$file" | cut -d'_' -f1)
+    
+    # Increment the sequence count for this species
+    species_count[$species]=$((species_count[$species] + 1))
+    
+    # Create the new header with the sequence number
+    sequence_number=${species_count[$species]}
+    new_header="${species}_PLT4_${sequence_number}"
+    
+    # Modify the header of the FASTA file and append it to the output file
+    sed "s/>.*/>$new_header/g" "$file" >> "$output_file"
+done
+
+output_file="PLT5_truncated_promoters.fasta"
+unset species_count
+declare -A species_count
+for file in ./PLT5_promoters/*_truncated_promoter.fasta; do
+    # Extract species name (everything before the first dot)
+    species=$(basename "$file" | cut -d'_' -f1)
+    gene=$(basename "$file" | grep -oP '(?<=_).*?(?=_PLT)')
+    # Increment the sequence count for this species
+    species_count[$species]=$((species_count[$species] + 1))
+    
+    # Create the new header with the sequence number
+    sequence_number=${species_count[$species]}
+    new_header="${species}_PLT5_${sequence_number}"
+    echo -e "$gene\t$new_header"
+
+    # Modify the header of the FASTA file and append it to the output file
+    sed "s/>.*/>$new_header/g" "$file" >> "$output_file"
+done
+output_file="PLT5_full_promoters.fasta"
+unset species_count
+declare -A species_count
+for file in ./PLT5_promoters/*_full_promoter.fasta; do
+    # Extract species name (everything before the first dot)
+    species=$(basename "$file" | cut -d'_' -f1)
+    
+    # Increment the sequence count for this species
+    species_count[$species]=$((species_count[$species] + 1))
+    
+    # Create the new header with the sequence number
+    sequence_number=${species_count[$species]}
+    new_header="${species}_PLT5_${sequence_number}"
+    
+    # Modify the header of the FASTA file and append it to the output file
+    sed "s/>.*/>$new_header/g" "$file" >> "$output_file"
+done
+
+
+# only keep promoters >len 50
+for file in *_promoters.fasta; do
+  base_name="${file%.fasta}"
+  output_file="${base_name}_minlen50.fasta"
+  awk -v min_length=50 '
+    BEGIN { RS=">"; ORS="" }
+    NR > 1 {
+      seq_length = length($2)
+      if (seq_length >= min_length) {
+        print ">" $0
+      }
+    }
+  ' "$file" > "$output_file"
+done
+
+for file in *_minlen50.fasta; do
+    output_file="${file%.fasta}.lengths.txt"
+    awk '/^>/ {if (seqlen){print substr(header, 2) "  " seqlen}; header=$0; seqlen=0; next} {seqlen += length($0)} END {if (header) print substr(header, 2) "  " seqlen}' "$file" > "$output_file"
+done
